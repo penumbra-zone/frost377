@@ -1,0 +1,9 @@
+[package]
+name = "frost377"
+version = "0.1.0"
+edition = "2021"
+authors = ["Penumbra <crates@penumbra.zone>"]
+description = "An instantiation of FROST threshold signing for use with decaf377."
+license = "MIT OR Apache-2.0"
+
+[dependencies]
