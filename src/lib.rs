@@ -1,3 +1,6 @@
-fn main() {
-    println!("Hello, world!");
-}
+#![doc = include_str!("../README.md")]
+
+
+mod keygen;
+mod preprocess;
+mod sign;

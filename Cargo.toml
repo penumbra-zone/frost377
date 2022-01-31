@@ -7,3 +7,4 @@ description = "An instantiation of FROST threshold signing for use with decaf377
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+decaf377 = { git = "https://github.com/penumbra-zone/decaf377" }
