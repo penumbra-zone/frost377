@@ -8,3 +8,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 decaf377 = { git = "https://github.com/penumbra-zone/decaf377" }
+rand = { version = "0.8.4" }
+ark-ff = "0.3"
+blake2b_simd = "0.5"
+
