@@ -1,7 +1,8 @@
-use ark_ff::{Field, One, PrimeField, UniformRand};
 /// keygen: implements the keygen step of FROST
 ///
 ///
+
+use ark_ff::{PrimeField, UniformRand};
 use rand::thread_rng;
 
 pub struct SigmaProof {
@@ -14,7 +15,7 @@ impl SigmaProof {
         aio_commitment: decaf377::Element,
         aio: decaf377::Fr,
         context_string: &str,
-        i: u8,
+        i: usize,
     ) -> Self {
         let k = decaf377::Fr::rand(&mut thread_rng());
         let ri = k * decaf377::basepoint();
@@ -46,23 +47,15 @@ pub fn generate_keyshare(t: u8, n: u8, i: u8) -> RoundOne {
 
     // sample t random values ai0..ai(t-1) as coefficients
     let mut coeffs = Vec::new();
-    for i in 0..t - 1 {
+    for _ in 0..t - 1 {
         coeffs.push(decaf377::Fr::rand(rng));
     }
-
-    let poly_fi = |x: decaf377::Fr| -> decaf377::Fr {
-        let mut res = decaf377::Fr::one();
-        for coeff in coeffs.iter() {
-            res = res + (x * *coeff);
-        }
-        res
-    };
 
     let aio = coeffs[0].clone();
     let aio_commitment = aio * decaf377::basepoint();
 
     // compute a proof of knowledge to ai0
-    let sigma = SigmaProof::new(aio_commitment, aio, "TODO: ANTI-REPLAY CONTEXT", i);
+    let sigma = SigmaProof::new(aio_commitment, aio, "TODO: ANTI-REPLAY CONTEXT", i.into());
 
     let public_commitments = coeffs
         .iter()
@@ -75,7 +68,7 @@ pub fn generate_keyshare(t: u8, n: u8, i: u8) -> RoundOne {
     }
 }
 
-pub fn verify_keyshares(participants: Vec<RoundOne>, context_string: &str) -> bool {
+pub fn verify_keyshares(participants: Vec<RoundOne>, context_string: &str) -> Result<(), anyhow::Error> {
     for (i, participant) in participants.iter().enumerate() {
         // verify RoundOne.ri = g^ui * theta_0^-cl
         let ci = blake2b_simd::Params::default()
@@ -90,11 +83,11 @@ pub fn verify_keyshares(participants: Vec<RoundOne>, context_string: &str) -> bo
         let ci = participant.commitment[0] * -decaf377::Fr::from_le_bytes_mod_order(ci.as_bytes());
 
         if participant.sigma.ri != ci + (decaf377::basepoint() * participant.sigma.ui) {
-            return false;
+            return Err(anyhow::anyhow!("could not verify participant's key share"));
         }
     }
 
-    true
+    Ok(())
 }
 
 #[cfg(test)]
@@ -111,6 +104,6 @@ mod tests {
             shares.push(generate_keyshare(t, n, i));
         }
 
-        assert!(verify_keyshares(shares, "TODO: ANTI-REPLAY CONTEXT"));
+        verify_keyshares(shares, "TODO: ANTI-REPLAY CONTEXT").unwrap();
     }
 }
