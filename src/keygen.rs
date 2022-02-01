@@ -1,7 +1,12 @@
 /// keygen: implements the keygen step of FROST
 ///
-///
-
+/// see: https://eprint.iacr.org/2020/852.pdf (page 12)
+// TODO:
+// - more documentation
+// - implement round 2
+// - rework API design, think about api misuse potential
+// - add secure delete/zeroize-on-drop
+//
 use ark_ff::{PrimeField, UniformRand};
 use rand::thread_rng;
 
@@ -68,7 +73,10 @@ pub fn generate_keyshare(t: u8, n: u8, i: u8) -> RoundOne {
     }
 }
 
-pub fn verify_keyshares(participants: Vec<RoundOne>, context_string: &str) -> Result<(), anyhow::Error> {
+pub fn verify_keyshares(
+    participants: Vec<RoundOne>,
+    context_string: &str,
+) -> Result<(), anyhow::Error> {
     for (i, participant) in participants.iter().enumerate() {
         // verify RoundOne.ri = g^ui * theta_0^-cl
         let ci = blake2b_simd::Params::default()
