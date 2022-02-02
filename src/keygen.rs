@@ -8,6 +8,7 @@
 // - add secure delete/zeroize-on-drop
 //
 use ark_ff::{PrimeField, UniformRand};
+use ark_ff::Zero;
 use rand::thread_rng;
 
 struct SigmaProof {
@@ -70,23 +71,39 @@ pub struct RoundTwo {
     pub index: u16,
     pub fi: decaf377::Fr,
 }
+// evaluates the polynomial using Horner's method
+// (https://en.wikipedia.org/wiki/Horner%27s_method) at x
+fn evaluate_polynomial(x: decaf377::Fr, coeffs: Vec<decaf377::Fr>) -> decaf377::Fr {
+    let mut result = coeffs[0].clone();
+    for i in 1..coeffs.len() {
+        result = result * x + coeffs[i];
+    }
+    result
+}
 
 impl RoundTwo {
     fn new(secret_coeffs: Vec<decaf377::Fr>, i: u16) -> Self {
-        // evaluates the polynomial using Horner's method
-        // (https://en.wikipedia.org/wiki/Horner%27s_method) at x
-        let poly = |x: decaf377::Fr| {
-            let mut result = secret_coeffs[0].clone();
-            for i in 1..secret_coeffs.len() {
-                result = result * x + secret_coeffs[i];
-            }
-            result
-        };
-
-        // evaluate polynomial
-        let fi = poly(decaf377::Fr::from(i));
+        let fi = evaluate_polynomial(decaf377::Fr::from(i), secret_coeffs);
 
         RoundTwo { index: i, fi }
+    }
+    fn verify(&self, counterparty_shares: Vec<RoundTwo>, secret_coeffs: Vec<decaf377::Fr>, commitments: Vec<decaf377::Element>) -> bool {
+        // step 2: verify the counterparty's shares, abort if the check fails
+        for share in counterparty_shares.iter() {
+            let gfli = decaf377::basepoint() * evaluate_polynomial(decaf377::Fr::from(share.index), secret_coeffs.clone());
+            
+            let mut res = decaf377::Element::default();
+            for (k, commitment )in commitments.iter().enumerate() {
+                let ikmodq = decaf377::Fr::from(share.index.pow(k.try_into().unwrap()));
+
+                res = res + commitment * ikmodq;
+            }
+            if res != gfli {
+                return false;
+            }
+        }
+        
+        return true;
     }
 }
 
