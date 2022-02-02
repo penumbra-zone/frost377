@@ -12,4 +12,5 @@ rand = { version = "0.8.4" }
 ark-ff = "0.3"
 blake2b_simd = "0.5"
 anyhow = "1"
+ark-poly = "0.3"
 

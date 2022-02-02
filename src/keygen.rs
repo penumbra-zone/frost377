@@ -10,9 +10,9 @@
 use ark_ff::{PrimeField, UniformRand};
 use rand::thread_rng;
 
-pub struct SigmaProof {
-    pub ri: decaf377::Element,
-    pub ui: decaf377::Fr,
+struct SigmaProof {
+    ri: decaf377::Element,
+    ui: decaf377::Fr,
 }
 
 impl SigmaProof {
@@ -42,11 +42,55 @@ impl SigmaProof {
 }
 pub struct RoundOne {
     /// decaf377-encoded point that represents the participant's commitment
-    pub commitment: Vec<decaf377::Element>,
-    pub sigma: SigmaProof,
+    commitment: Vec<decaf377::Element>,
+    sigma: SigmaProof,
 }
 
-pub fn generate_keyshare(t: u8, n: u8, i: u8) -> RoundOne {
+impl RoundOne {
+    fn new(secret_coeffs: Vec<decaf377::Fr>, t: u16, n: u16, i: u16) -> Self {
+        let aio = secret_coeffs[0].clone();
+        let aio_commitment = aio * decaf377::basepoint();
+
+        // compute a proof of knowledge to ai0
+        let sigma = SigmaProof::new(aio_commitment, aio, "TODO: ANTI-REPLAY CONTEXT", i.into());
+
+        let public_commitments = secret_coeffs
+            .iter()
+            .map(|coeff| coeff * decaf377::basepoint())
+            .collect::<Vec<_>>();
+
+        RoundOne {
+            commitment: public_commitments,
+            sigma,
+        }
+    }
+}
+
+pub struct RoundTwo {
+    pub index: u16,
+    pub fi: decaf377::Fr,
+}
+
+impl RoundTwo {
+    fn new(secret_coeffs: Vec<decaf377::Fr>, i: u16) -> Self {
+        // evaluates the polynomial using Horner's method
+        // (https://en.wikipedia.org/wiki/Horner%27s_method) at x
+        let poly = |x: decaf377::Fr| {
+            let mut result = secret_coeffs[0].clone();
+            for i in 1..secret_coeffs.len() {
+                result = result * x + secret_coeffs[i];
+            }
+            result
+        };
+
+        // evaluate polynomial
+        let fi = poly(decaf377::Fr::from(i));
+
+        RoundTwo { index: i, fi }
+    }
+}
+
+pub fn generate_keyshare(t: u8, n: u8, i: u8) -> Vec<decaf377::Fr> {
     // TODO: check t, n
     let rng = &mut thread_rng();
 
@@ -56,21 +100,7 @@ pub fn generate_keyshare(t: u8, n: u8, i: u8) -> RoundOne {
         coeffs.push(decaf377::Fr::rand(rng));
     }
 
-    let aio = coeffs[0].clone();
-    let aio_commitment = aio * decaf377::basepoint();
-
-    // compute a proof of knowledge to ai0
-    let sigma = SigmaProof::new(aio_commitment, aio, "TODO: ANTI-REPLAY CONTEXT", i.into());
-
-    let public_commitments = coeffs
-        .iter()
-        .map(|coeff| coeff * decaf377::basepoint())
-        .collect::<Vec<_>>();
-
-    RoundOne {
-        commitment: public_commitments,
-        sigma,
-    }
+    coeffs
 }
 
 pub fn verify_keyshares(
@@ -107,11 +137,13 @@ mod tests {
         let t = 3;
         let n = 5;
 
-        let mut shares = Vec::new();
+        let mut round1_messages = Vec::new();
         for i in 0..n {
-            shares.push(generate_keyshare(t, n, i));
+            let share = generate_keyshare(t, n, i);
+            let round1 = RoundOne::new(share, t.into(), n.into(), i.into());
+            round1_messages.push(round1);
         }
 
-        verify_keyshares(shares, "TODO: ANTI-REPLAY CONTEXT").unwrap();
+        verify_keyshares(round1_messages, "TODO: ANTI-REPLAY CONTEXT").unwrap();
     }
 }
