@@ -1,3 +1,4 @@
+use ark_ff::Zero;
 /// keygen: implements the keygen step of FROST
 ///
 /// see: https://eprint.iacr.org/2020/852.pdf (page 12)
@@ -8,7 +9,6 @@
 // - add secure delete/zeroize-on-drop
 //
 use ark_ff::{PrimeField, UniformRand};
-use ark_ff::Zero;
 use rand::thread_rng;
 
 struct SigmaProof {
@@ -67,6 +67,12 @@ impl RoundOne {
     }
 }
 
+pub struct DKGKey {
+    verification_share: decaf377::Element,
+    private_share: decaf377::Fr,
+    group_public_key: decaf377::Element,
+}
+
 pub struct RoundTwo {
     pub index: u16,
     pub fi: decaf377::Fr,
@@ -87,23 +93,49 @@ impl RoundTwo {
 
         RoundTwo { index: i, fi }
     }
-    fn verify(&self, counterparty_shares: Vec<RoundTwo>, secret_coeffs: Vec<decaf377::Fr>, commitments: Vec<decaf377::Element>) -> bool {
+    fn verify(
+        &self,
+        counterparty_shares: Vec<RoundTwo>,
+        secret_coeffs: Vec<decaf377::Fr>,
+        commitments: Vec<decaf377::Element>,
+    ) -> Result<DKGKey, anyhow::Error> {
         // step 2: verify the counterparty's shares, abort if the check fails
         for share in counterparty_shares.iter() {
-            let gfli = decaf377::basepoint() * evaluate_polynomial(decaf377::Fr::from(share.index), secret_coeffs.clone());
-            
+            let gfli = decaf377::basepoint()
+                * evaluate_polynomial(decaf377::Fr::from(share.index), secret_coeffs.clone());
+
             let mut res = decaf377::Element::default();
-            for (k, commitment )in commitments.iter().enumerate() {
+            for (k, commitment) in commitments.iter().enumerate() {
                 let ikmodq = decaf377::Fr::from(share.index.pow(k.try_into().unwrap()));
 
                 res = res + commitment * ikmodq;
             }
             if res != gfli {
-                return false;
+                Err(anyhow::anyhow!("verification failed"))?
             }
         }
-        
-        return true;
+
+        // compute the long-lived private signing share
+        let mut private_share = decaf377::Fr::zero();
+        for i in 0..secret_coeffs.len() {
+            let i32 = i as u32;
+            private_share =
+                private_share + evaluate_polynomial(decaf377::Fr::from(i32), secret_coeffs.clone());
+        }
+
+        // compute the public verification key and the group's public key
+        let verification_share = decaf377::basepoint() * private_share;
+
+        let mut group_public_key = decaf377::Element::default();
+        for i in 0..secret_coeffs.len() {
+            group_public_key = group_public_key + commitments[i];
+        }
+
+        Ok(DKGKey {
+            verification_share,
+            private_share,
+            group_public_key,
+        })
     }
 }
 
