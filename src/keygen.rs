@@ -12,68 +12,97 @@ use ark_ff::{PrimeField, UniformRand};
 use rand::thread_rng;
 
 #[derive(Debug, Clone)]
-struct SigmaProof {
+pub struct RoundOne {
+    /// decaf377-encoded point that represents the participant's commitment
+    commitment: Vec<decaf377::Element>,
+
+    // proof of knowledge to ai0
     ri: decaf377::Element,
     ui: decaf377::Fr,
 }
 
-impl SigmaProof {
-    pub fn new(
-        aio_commitment: decaf377::Element,
-        aio: decaf377::Fr,
-        context_string: &str,
-        i: usize,
-    ) -> Self {
+impl RoundOne {
+    fn for_participant(participant: &Participant, t: u32, n: u32) -> Self {
+        let aio = participant.secret_coeffs[0].clone();
+        let aio_commitment = aio * decaf377::basepoint();
+
+        // compute a proof of knowledge for ai0
         let k = decaf377::Fr::rand(&mut thread_rng());
         let ri = k * decaf377::basepoint();
-
         let ci = blake2b_simd::Params::default()
             .personal(b"keygen_challenge")
             .to_state()
-            .update(&i.to_le_bytes())
-            .update(context_string.as_bytes())
+            .update(&participant.index.to_le_bytes())
+            .update("TODO: ANTI-REPLAY CONTEXT".as_bytes())
             .update(aio_commitment.compress().0.as_ref())
             .update(ri.compress().0.as_ref())
             .finalize();
+        let ui = k + aio * decaf377::Fr::from_le_bytes_mod_order(ci.as_bytes());
 
-        let cie = decaf377::Fr::from_le_bytes_mod_order(ci.as_bytes());
-        let ui = k + aio * cie;
-
-        SigmaProof { ri, ui }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct RoundOne {
-    /// decaf377-encoded point that represents the participant's commitment
-    commitment: Vec<decaf377::Element>,
-    sigma: SigmaProof,
-}
-
-impl RoundOne {
-    fn new(secret_coeffs: Vec<decaf377::Fr>, t: u16, n: u16, i: u16) -> Self {
-        let aio = secret_coeffs[0].clone();
-        let aio_commitment = aio * decaf377::basepoint();
-
-        // compute a proof of knowledge to ai0
-        let sigma = SigmaProof::new(aio_commitment, aio, "TODO: ANTI-REPLAY CONTEXT", i.into());
-
-        let public_commitments = secret_coeffs
+        let public_commitments = participant
+            .secret_coeffs
             .iter()
             .map(|coeff| coeff * decaf377::basepoint())
             .collect::<Vec<_>>();
 
         RoundOne {
             commitment: public_commitments,
-            sigma,
+            ri,
+            ui,
         }
     }
+}
+
+pub fn verify_keyshares(
+    participants: Vec<RoundOne>,
+    context_string: &str,
+) -> Result<(), anyhow::Error> {
+    for (i, participant) in participants.iter().enumerate() {
+        let index = i as u32;
+        // verify RoundOne.ri = g^ui * theta_0^-cl
+        let ci = blake2b_simd::Params::default()
+            .personal(b"keygen_challenge")
+            .to_state()
+            .update(&index.to_le_bytes())
+            .update(context_string.as_bytes())
+            .update(participant.commitment[0].compress().0.as_ref())
+            .update(participant.ri.compress().0.as_ref())
+            .finalize();
+
+        let ci = participant.commitment[0] * -decaf377::Fr::from_le_bytes_mod_order(ci.as_bytes());
+
+        if participant.ri != ci + (decaf377::basepoint() * participant.ui) {
+            return Err(anyhow::anyhow!("could not verify participant's key share"));
+        }
+    }
+
+    Ok(())
 }
 
 pub struct DKGKey {
     verification_share: decaf377::Element,
     private_share: decaf377::Fr,
     group_public_key: decaf377::Element,
+}
+
+pub struct Participant {
+    secret_coeffs: Vec<decaf377::Fr>,
+    index: u32,
+}
+
+impl Participant {
+    pub fn new(index: u32, t: u32) -> Self {
+        let rng = &mut thread_rng();
+
+        let secret_coeffs = (0..t - 1)
+            .map(|_| decaf377::Fr::rand(rng))
+            .collect::<Vec<_>>();
+
+        Participant {
+            secret_coeffs,
+            index,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -114,6 +143,7 @@ impl RoundTwo {
 
                 res = res + commitment * ikmodq;
             }
+            println!("{:?}", res);
             if res != gfli {
                 Err(anyhow::anyhow!("verification failed"))?
             }
@@ -142,51 +172,30 @@ impl RoundTwo {
         })
     }
 }
-
-pub fn generate_keyshare(t: u8, n: u8, i: u8) -> Vec<decaf377::Fr> {
-    // TODO: check t, n
-    let rng = &mut thread_rng();
-
-    // sample t random values ai0..ai(t-1) as coefficients
-    let mut coeffs = Vec::new();
-    for _ in 0..t - 1 {
-        coeffs.push(decaf377::Fr::rand(rng));
-    }
-
-    coeffs
-}
-
-pub fn verify_keyshares(
-    participants: Vec<RoundOne>,
-    context_string: &str,
-) -> Result<(), anyhow::Error> {
-    for (i, participant) in participants.iter().enumerate() {
-        // verify RoundOne.ri = g^ui * theta_0^-cl
-        let ci = blake2b_simd::Params::default()
-            .personal(b"keygen_challenge")
-            .to_state()
-            .update(&i.to_le_bytes())
-            .update(context_string.as_bytes())
-            .update(participant.commitment[0].compress().0.as_ref())
-            .update(participant.sigma.ri.compress().0.as_ref())
-            .finalize();
-
-        let ci = participant.commitment[0] * -decaf377::Fr::from_le_bytes_mod_order(ci.as_bytes());
-
-        if participant.sigma.ri != ci + (decaf377::basepoint() * participant.sigma.ui) {
-            return Err(anyhow::anyhow!("could not verify participant's key share"));
-        }
-    }
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
+    fn test_roundone_generate_verify() {
+        let t = 3;
+        let n = 5;
+
+        let mut participants = Vec::new();
+        for i in 0..n {
+            participants.push(Participant::new(i, t));
+        }
+
+        let mut round1_messages = Vec::new();
+        for participant in participants.iter() {
+            round1_messages.push(RoundOne::for_participant(participant, t, n));
+        }
+
+        verify_keyshares(round1_messages, "TODO: ANTI-REPLAY CONTEXT").unwrap();
+    }
+    #[test]
     fn test_full_dkg() {
+        /*
         let t = 3;
         let n = 5;
 
@@ -204,33 +213,26 @@ mod tests {
         let mut round2_messages = Vec::new();
         let mut result_keys = Vec::new();
         for i in 0..n {
-            let round2 = RoundTwo::new(shares[i as usize].clone(), i.into());
-            round2_messages.push(round2);
+            let participant_messages = Vec::new();
+            for i in 0..n {
+                let round2 = RoundTwo::new(shares[i as usize].clone(), i.into());
+                participant_messages.push(round2);
+            }
+            round2_messages.push(participant_messages);
         }
-        for (i, round2) in round2_messages.iter().enumerate() {
+
+        println!("{:?}", round2_messages);
+        for (i, participant) in round2_messages.iter().enumerate() {
             let shares = shares[i].clone();
             let dkg_key = round2
                 .verify(
-                    round2_messages.clone(),
+                    round2_messages[i].clone(),
                     shares,
                     round1_messages[i].commitment.clone(),
                 )
                 .unwrap();
             result_keys.push(dkg_key);
         }
-    }
-    #[test]
-    fn test_roundone_generate_verify() {
-        let t = 3;
-        let n = 5;
-
-        let mut round1_messages = Vec::new();
-        for i in 0..n {
-            let share = generate_keyshare(t, n, i);
-            let round1 = RoundOne::new(share, t.into(), n.into(), i.into());
-            round1_messages.push(round1);
-        }
-
-        verify_keyshares(round1_messages, "TODO: ANTI-REPLAY CONTEXT").unwrap();
+        */
     }
 }
