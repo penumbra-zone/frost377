@@ -11,6 +11,7 @@ use ark_ff::Zero;
 use ark_ff::{PrimeField, UniformRand};
 use rand::thread_rng;
 
+#[derive(Debug, Clone)]
 struct SigmaProof {
     ri: decaf377::Element,
     ui: decaf377::Fr,
@@ -41,6 +42,8 @@ impl SigmaProof {
         SigmaProof { ri, ui }
     }
 }
+
+#[derive(Debug, Clone)]
 pub struct RoundOne {
     /// decaf377-encoded point that represents the participant's commitment
     commitment: Vec<decaf377::Element>,
@@ -73,6 +76,7 @@ pub struct DKGKey {
     group_public_key: decaf377::Element,
 }
 
+#[derive(Debug, Clone)]
 pub struct RoundTwo {
     pub index: u16,
     pub fi: decaf377::Fr,
@@ -181,6 +185,40 @@ pub fn verify_keyshares(
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_full_dkg() {
+        let t = 3;
+        let n = 5;
+
+        let mut round1_messages = Vec::new();
+        let mut shares = Vec::new();
+        for i in 0..n {
+            let share = generate_keyshare(t, n, i);
+            let round1 = RoundOne::new(share.clone(), t.into(), n.into(), i.into());
+            round1_messages.push(round1);
+            shares.push(share)
+        }
+
+        verify_keyshares(round1_messages.clone(), "TODO: ANTI-REPLAY CONTEXT").unwrap();
+
+        let mut round2_messages = Vec::new();
+        let mut result_keys = Vec::new();
+        for i in 0..n {
+            let round2 = RoundTwo::new(shares[i as usize].clone(), i.into());
+            round2_messages.push(round2);
+        }
+        for (i, round2) in round2_messages.iter().enumerate() {
+            let shares = shares[i].clone();
+            let dkg_key = round2
+                .verify(
+                    round2_messages.clone(),
+                    shares,
+                    round1_messages[i].commitment.clone(),
+                )
+                .unwrap();
+            result_keys.push(dkg_key);
+        }
+    }
     #[test]
     fn test_roundone_generate_verify() {
         let t = 3;
