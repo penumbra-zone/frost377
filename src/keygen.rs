@@ -1,21 +1,17 @@
-use ark_ff::Field;
-use ark_ff::Zero;
 /// keygen: implements the keygen step of FROST
 ///
 /// see: https://eprint.iacr.org/2020/852.pdf (page 12)
 // TODO:
 // - more documentation
-// - implement round 2
 // - rework API design, think about api misuse potential
 // - add secure delete/zeroize-on-drop
-//
-use ark_ff::{One, PrimeField, UniformRand};
+use ark_ff::{PrimeField, UniformRand, Field, Zero};
 use rand::thread_rng;
 
 #[derive(Debug, Clone)]
 pub struct RoundOne {
-    /// decaf377-encoded point that represents the participant's commitment
-    commitment: Vec<decaf377::Element>,
+    /// commitments to <ai0, ai1, ai2 ...
+    commitments: Vec<decaf377::Element>,
 
     // proof of knowledge to ai0
     ri: decaf377::Element,
@@ -25,7 +21,7 @@ pub struct RoundOne {
 impl RoundOne {
     fn for_participant(participant: &Participant) -> Self {
         RoundOne {
-            commitment: participant.commitments.clone(),
+            commitments: participant.commitments.clone(),
             ri: participant.ri,
             ui: participant.ui,
         }
@@ -44,11 +40,11 @@ pub fn verify_keyshares(
             .to_state()
             .update(&index.to_le_bytes())
             .update(context_string.as_bytes())
-            .update(participant.commitment[0].compress().0.as_ref())
+            .update(participant.commitments[0].compress().0.as_ref())
             .update(participant.ri.compress().0.as_ref())
             .finalize();
 
-        let ci = participant.commitment[0] * -decaf377::Fr::from_le_bytes_mod_order(ci.as_bytes());
+        let ci = participant.commitments[0] * -decaf377::Fr::from_le_bytes_mod_order(ci.as_bytes());
 
         // verify ui*G + Ci0*-ci = Ri
         if participant.ri != (decaf377::basepoint() * participant.ui) + ci {
@@ -270,9 +266,6 @@ mod tests {
         }
 
         // verify that every participant produced the same group public key
-        for pubkey in group_public_keys.iter() {
-            println!("{:?}", pubkey);
-        }
         group_public_keys
             .iter()
             .fold(group_public_keys[0].clone(), |acc, x| {
