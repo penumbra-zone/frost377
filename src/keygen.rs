@@ -5,7 +5,7 @@
 // - more documentation
 // - rework API design, think about api misuse potential
 // - add secure delete/zeroize-on-drop
-use ark_ff::{PrimeField, UniformRand, Field, Zero};
+use ark_ff::{Field, PrimeField, UniformRand, Zero};
 use rand::thread_rng;
 
 #[derive(Debug, Clone)]
@@ -16,16 +16,6 @@ pub struct RoundOne {
     // proof of knowledge to ai0
     ri: decaf377::Element,
     ui: decaf377::Fr,
-}
-
-impl RoundOne {
-    fn for_participant(participant: &Participant) -> Self {
-        RoundOne {
-            commitments: participant.commitments.clone(),
-            ri: participant.ri,
-            ui: participant.ui,
-        }
-    }
 }
 
 pub fn verify_keyshares(
@@ -122,6 +112,13 @@ impl Participant {
             ui: ui,
         }
     }
+    fn round_one(&self) -> RoundOne {
+        RoundOne {
+            commitments: self.commitments.clone(),
+            ri: self.ri,
+            ui: self.ui,
+        }
+    }
     fn share_for_counterparty(&self, counterparty_index: u32) -> RoundTwo {
         let fi = evaluate_polynomial(
             decaf377::Fr::from(counterparty_index),
@@ -210,7 +207,7 @@ mod tests {
 
         let mut round1_messages = Vec::new();
         for participant in participants.iter() {
-            round1_messages.push(RoundOne::for_participant(participant));
+            round1_messages.push(participant.round_one());
         }
         verify_keyshares(round1_messages, "TODO: ANTI-REPLAY CONTEXT").unwrap();
     }
@@ -226,7 +223,7 @@ mod tests {
 
         let mut round1_messages = Vec::new();
         for participant in participants.iter() {
-            round1_messages.push(RoundOne::for_participant(participant));
+            round1_messages.push(participant.round_one());
         }
         verify_keyshares(round1_messages.clone(), "TODO: ANTI-REPLAY CONTEXT").unwrap();
 
@@ -255,7 +252,7 @@ mod tests {
                         participants[l as usize].secret_coeffs.clone(),
                         aio_commitments.clone(),
                         t,
-                        n
+                        n,
                     )
                     .unwrap();
 
