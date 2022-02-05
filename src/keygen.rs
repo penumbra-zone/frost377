@@ -60,7 +60,7 @@ pub struct Participant {
     index: u32,
 }
 
-// evaluates the polynomial using Horner's method
+// evaluates the polynomial specified by `coeffs` using Horner's method
 // (https://en.wikipedia.org/wiki/Horner%27s_method) at x
 fn evaluate_polynomial(x: decaf377::Fr, coeffs: Vec<decaf377::Fr>) -> decaf377::Fr {
     let mut result = decaf377::Fr::zero();
@@ -119,7 +119,7 @@ impl Participant {
             ui: self.ui,
         }
     }
-    fn share_for_counterparty(&self, counterparty_index: u32) -> RoundTwo {
+    fn round_two(&self, counterparty_index: u32) -> RoundTwo {
         let fi = evaluate_polynomial(
             decaf377::Fr::from(counterparty_index),
             self.secret_coeffs.clone(),
@@ -144,53 +144,36 @@ impl RoundTwo {
     fn verify(
         &self,
         counterparty_commitments: Vec<decaf377::Element>,
-        secret_coeffs: Vec<decaf377::Fr>,
-        ai0_commitments: Vec<decaf377::Element>,
-        t: u32,
-        n: u32,
-    ) -> Result<DKGKey, anyhow::Error> {
+    ) -> Result<(), anyhow::Error> {
         // step 2: verify the counterparty's shares, abort if the check fails
         // compute fl(i)*G
         let gfli = self.fi * decaf377::basepoint();
-        println!("fi: {:?}", self.fi);
 
-        let mut res = decaf377::Element::default();
-        for k in 0..t - 1 {
-            let mut ikmodq = decaf377::Fr::from(
-                self.participant_index.pow(k as u32) as u64 % decaf377::Fr::characteristic()[0],
-            );
-            res = res + (counterparty_commitments[k as usize] * ikmodq);
+        // verify fl(i)*G = sum(Cl(k) * i^k)
+        let mut result = decaf377::Element::default();
+        for (i, commitment) in counterparty_commitments.iter().rev().enumerate() {
+            result += commitment;
+
+            if i != counterparty_commitments.len() - 1 {
+                result = result * decaf377::Fr::from(self.participant_index);
+            }
         }
-
-        println!("{:?}", res);
-        println!("{:?}", gfli);
-        if res != gfli {
+        if result != gfli {
             Err(anyhow::anyhow!("verification failed"))?
         }
 
-        // compute the long-lived private signing share
-        let mut private_share = decaf377::Fr::zero();
-        for i in 1..n {
-            let i32 = i as u32;
-            private_share =
-                private_share + evaluate_polynomial(decaf377::Fr::from(i32), secret_coeffs.clone());
-        }
-
-        // compute the public verification key and the group's public key
-        let verification_share = decaf377::basepoint() * private_share;
-
-        let mut group_public_key = decaf377::Element::default();
-        for i in 1..n {
-            group_public_key = group_public_key + ai0_commitments[i as usize]
-        }
-
-        Ok(DKGKey {
-            verification_share,
-            private_share,
-            group_public_key,
-        })
+        Ok(())
     }
 }
+
+fn group_public_key(ai0_commitments: Vec<decaf377::Element>, n: u32) -> decaf377::Element {
+    let mut result = decaf377::Element::default();
+    for i in 1..n {
+        result = result + ai0_commitments[i as usize]
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -233,7 +216,6 @@ mod tests {
         }
 
         // each Pi sends to each other participant Pl (l, fi(l))
-        let mut group_public_keys = Vec::new();
         for (i, participant) in participants.iter().enumerate() {
             for l in 0..n {
                 if i == l as usize {
@@ -241,33 +223,19 @@ mod tests {
                 }
                 // (l, fi(l))
                 // send participant l participant i's (l, fi(l))
-                let pi_message = participant.share_for_counterparty(l);
+                let pi_message = participant.round_two(l);
                 println!("{:?}", pi_message);
 
                 // participant i verifies their shares for participant l
-                let dkg_key = pi_message
+                pi_message
                     .clone()
-                    .verify(
-                        participant.commitments.clone(),
-                        participants[l as usize].secret_coeffs.clone(),
-                        aio_commitments.clone(),
-                        t,
-                        n,
-                    )
+                    .verify(participant.commitments.clone())
                     .unwrap();
 
-                group_public_keys.push(dkg_key.group_public_key);
                 println!("VERIFICATION SUCCESS");
-                println!("{:?}", dkg_key);
             }
         }
 
-        // verify that every participant produced the same group public key
-        group_public_keys
-            .iter()
-            .fold(group_public_keys[0].clone(), |acc, x| {
-                assert_eq!(acc, *x);
-                acc
-            });
+        println!("{:?}", group_public_key(aio_commitments, n));
     }
 }
