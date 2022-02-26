@@ -1,5 +1,5 @@
 #![doc = include_str!("../README.md")]
 
-mod keygen;
+pub mod keygen;
 mod preprocess;
 mod sign;
