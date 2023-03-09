@@ -7,10 +7,14 @@ description = "An instantiation of FROST threshold signing for use with decaf377
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-decaf377 = { git = "https://github.com/penumbra-zone/decaf377" }
+decaf377 = { version= "0.3", default-features=false }
 rand = { version = "0.8.4" }
-ark-ff = "0.3"
+ark-ff =  { version = "0.3", default-features=false }
 blake2b_simd = "0.5"
 anyhow = "1"
-ark-poly = "0.3"
+ark-poly = { version= "0.3", default-features=false }
 
+[features]
+default = ["std"]
+std = ["ark-ff/std", "ark-poly/std"]
+parallel = ["ark-ff/parallel", "decaf377/parallel", "ark-poly/std"]
