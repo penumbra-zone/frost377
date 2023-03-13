@@ -21,7 +21,6 @@ pub struct RoundOne {
     ui: decaf377::Fr,
 }
 
-
 #[derive(Debug, Clone)]
 pub struct RoundTwo {
     pub for_participant: u32,
@@ -94,8 +93,8 @@ impl Participant {
             .to_state()
             .update(&self.index.to_le_bytes())
             .update("TODO: ANTI-REPLAY CONTEXT".as_bytes())
-            .update(aio_commitment.compress().0.as_ref())
-            .update(ri.compress().0.as_ref())
+            .update(aio_commitment.vartime_compress().0.as_ref())
+            .update(ri.vartime_compress().0.as_ref())
             .finalize();
 
         let ui = k + self.secret_coeffs[0] * decaf377::Fr::from_le_bytes_mod_order(ci.as_bytes());
@@ -118,8 +117,8 @@ impl Participant {
                 .to_state()
                 .update(&participant.from_participant.to_le_bytes())
                 .update(context_string.as_bytes())
-                .update(participant.commitments[0].compress().0.as_ref())
-                .update(participant.ri.compress().0.as_ref())
+                .update(participant.commitments[0].vartime_compress().0.as_ref())
+                .update(participant.ri.vartime_compress().0.as_ref())
                 .finalize();
 
             let ci =
@@ -131,8 +130,10 @@ impl Participant {
             }
 
             // store this participant's commitments
-            self.counterparty_commitments
-                .insert(participant.from_participant, participant.commitments.clone());
+            self.counterparty_commitments.insert(
+                participant.from_participant,
+                participant.commitments.clone(),
+            );
         }
         Ok(())
     }
