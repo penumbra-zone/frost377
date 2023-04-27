@@ -1,6 +1,6 @@
 [package]
 name = "frost377"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Penumbra <team@penumbralabs.xyz>"]
 description = "An instantiation of FROST threshold signing for use with decaf377."
@@ -8,12 +8,12 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/penumbra-zone/frost377"
 
 [dependencies]
-decaf377 = { version= "0.3", default-features=false }
+decaf377 = { version= "0.4", default-features=false }
 rand = { version = "0.8.4" }
-ark-ff =  { version = "0.3", default-features=false }
+ark-ff =  { version = "0.4", default-features=false }
 blake2b_simd = "0.5"
 anyhow = "1"
-ark-poly = { version= "0.3", default-features=false }
+ark-poly = { version= "0.4", default-features=false }
 
 [features]
 default = ["std"]
